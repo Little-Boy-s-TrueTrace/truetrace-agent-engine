@@ -3,6 +3,8 @@ import logging
 from vision_api import get_provider
 from cccd_validator import validate_format
 from config import Config
+from backend_client import json_text, request
+from identity_registry import IdentityRegistryClient
 
 logger = logging.getLogger(__name__)
 
@@ -10,16 +12,21 @@ class DeepfakeInspectorAgent:
     def __init__(self, kafka_producer=None):
         self.kafka_producer = kafka_producer
         self.vision_api = get_provider(Config.VISION_API_PROVIDER)
+        self.identity_registry = IdentityRegistryClient()
         
     async def analyze_kyc(self, kyc_session: dict) -> dict:
         logger.info(f"Analyzing KYC session {kyc_session.get('session_id')}")
         
         # 1. Validate CCCD
-        cccd_result = validate_format(kyc_session.get('cccd_number', ''))
+        session_id = kyc_session.get('session_id') or kyc_session.get('sessionId')
+        cccd_number = kyc_session.get('cccd_number') or kyc_session.get('cccdNumber', '')
+        customer_name = kyc_session.get('customer_name') or kyc_session.get('customerName', '')
+        cccd_result = validate_format(cccd_number)
+        registry_result = await self.identity_registry.verify(cccd_number, customer_name)
         
         # 2. Vision Analysis
         vision_result = await self.vision_api.analyze_image(
-            kyc_session.get('face_image_base64', ''),
+            kyc_session.get('face_image_base64') or kyc_session.get('faceImageBase64', ''),
             'deepfake'
         )
         
@@ -27,6 +34,8 @@ class DeepfakeInspectorAgent:
         risk_score = 0.0
         if not cccd_result.get('valid'):
             risk_score += 3.0
+        if registry_result.get("matched") is False:
+            risk_score += 4.0
         
         df_prob = vision_result.get('deepfake_probability', 0)
         if df_prob > 0.8:
@@ -35,12 +44,13 @@ class DeepfakeInspectorAgent:
             risk_score += 4.0
             
         finding = {
-            "session_id": kyc_session.get('session_id'),
-            "account_id": kyc_session.get('account_id'),
-            "risk_score": risk_score,
+            "session_id": session_id,
+            "account_id": kyc_session.get('account_id') or kyc_session.get('accountId'),
+            "risk_score": min(10.0, risk_score),
             "cccd_validation": cccd_result,
+            "identity_registry": registry_result,
             "vision_analysis": vision_result,
-            "timestamp": kyc_session.get('timestamp')
+            "timestamp": kyc_session.get('timestamp') or kyc_session.get('createdAt')
         }
         
         # Publish finding to Kafka
@@ -53,11 +63,29 @@ class DeepfakeInspectorAgent:
             except Exception as e:
                 logger.error(f"Failed to publish to Kafka: {e}")
                 
-        import httpx
         try:
-            url = f"{Config.BACKEND_URL}/api/kyc/sessions/{kyc_session.get('session_id')}/status"
-            async with httpx.AsyncClient() as client:
-                await client.put(url, json={"finding": finding})
+            probability = float(vision_result.get("deepfake_probability", 0))
+            if probability >= Config.DEEPFAKE_REJECT_THRESHOLD:
+                status, action, risk_level = "REJECTED", "BLOCK_ONBOARDING", "CRITICAL"
+            elif probability >= Config.DEEPFAKE_REVIEW_THRESHOLD or risk_score >= 4:
+                status, action, risk_level = "MANUAL_REVIEW", "REVIEW_EVIDENCE", "HIGH"
+            else:
+                status, action, risk_level = "APPROVED", "CONTINUE_ONBOARDING", "LOW"
+            await request(
+                "PUT",
+                f"/api/kyc/sessions/{session_id}/status",
+                {
+                    "status": status,
+                    "agentFindingJson": json_text(finding),
+                    "riskLevel": risk_level,
+                    "recommendedAction": action,
+                    "deepfakeScore": round(probability * 100),
+                    "faceMatchScore": round(float(vision_result.get("face_match_score", 0)) * 100),
+                    "livenessScore": round(float(vision_result.get("liveness_score", 0)) * 100),
+                    "documentIntegrityScore": 100 if cccd_result.get("valid") else 0,
+                    "cccdValid": cccd_result.get("valid"),
+                },
+            )
         except Exception as e:
             logger.error(f"Failed to call backend API: {e}")
             

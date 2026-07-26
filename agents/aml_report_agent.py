@@ -2,9 +2,9 @@ import json
 import logging
 from typing import Optional
 import time
-import aiohttp
 from config import Config
 from llm_report_writer import LlmReportWriter
+from backend_client import json_text, request
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class AmlReportAgent:
             "narrative_vi": narrative.get('narrative_vi'),
             "narrative_en": narrative.get('narrative_en'),
             "status": "DRAFT",
+            "human_approval_required": True,
             "timestamp": time.time()
         }
         
@@ -45,10 +46,22 @@ class AmlReportAgent:
         return report
         
     async def _create_str_report_backend(self, report: dict):
-        url = f"{Config.BACKEND_URL}/api/str/reports"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=report) as resp:
-                    logger.info(f"Create STR report response: {resp.status}")
+            await request(
+                "POST",
+                "/api/str/reports",
+                {
+                    "reportType": "STR",
+                    "status": "DRAFT",
+                    "narrativeTextVi": report["narrative_vi"],
+                    "narrativeTextEn": report["narrative_en"],
+                    "evidenceSummaryJson": json_text(report["evidence"]),
+                    "riskScore": report["evidence"]["alert"].get("risk_score"),
+                    "riskLevel": "HIGH",
+                    "recommendedActionsJson": json_text(
+                        ["HUMAN_REVIEW", "PRESERVE_EVIDENCE", "CONSIDER_STR_SUBMISSION"]
+                    ),
+                },
+            )
         except Exception as e:
             logger.error(f"Error creating STR report in backend: {e}")

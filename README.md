@@ -1,74 +1,73 @@
-# TrueTrace Agent Engine
+# TrueTrace Multi-Agent Engine
 
-[![Git Clones](https://badgen.net/https/cdn.jsdelivr.net/gh/Little-Boy-s-TrueTrace/truetrace-deployment@main/truetrace-engine-clone-badge.json)](https://github.com/Little-Boy-s-TrueTrace/truetrace-deployment)
-[![Unique Cloners](https://badgen.net/https/cdn.jsdelivr.net/gh/Little-Boy-s-TrueTrace/truetrace-deployment@main/truetrace-engine-uniques-badge.json)](https://github.com/Little-Boy-s-TrueTrace/truetrace-deployment)
-[![Release Downloads](https://badgen.net/https/cdn.jsdelivr.net/gh/Little-Boy-s-TrueTrace/truetrace-deployment@main/downloads-badge.json)](https://github.com/Little-Boy-s-TrueTrace/truetrace-deployment/releases)
+Runtime Python bất đồng bộ điều phối ba agent tuân thủ:
 
-> **Part of the [Little Boy's TrueTrace](https://github.com/Little-Boy-s-TrueTrace) project** -- an end-to-end AI-powered banking security platform.
+- Deepfake Inspector xử lý KYC, CCCD, Alibaba vision/eKYC và identity registry.
+- Money-Trail Explorer phân tích đồ thị giao dịch theo cửa sổ trượt, đóng băng tài
+  khoản có rủi ro cao và tạo AML alert.
+- AML Reporter dùng Qwen soạn STR song ngữ ở trạng thái nháp để người thật duyệt.
 
-The **TrueTrace Agent Engine (Multi-Agent Deepfake & AML Compliance Orchestrator)** serves as the central brain of the defensive ecosystem. It ingests fraud alerts, deepfake analysis findings, correlates cross-channel data, verifies transactions, and performs automated compliance tracking and account protection under strict policy guardrails.
-
----
-
-## Key Features & Architecture
-
-### 1. Multi-Stream Ingestion & Correlation
-The engine runs a Kafka consumer pipeline listening to fraud telemetry and transaction alerts. To avoid duplicate alerts and analyze complex fraud schemes, incoming findings enter an in-memory sliding correlation window. Alerts are grouped by primary entity: IP Addresses, Usernames, or Account IDs.
-
-### 2. Independent Transaction Verification
-Before acting on a finding, the engine crosschecks the alert by querying clean PostgreSQL database access logs. This determines if the suspicious pattern reported actually occurred on the backend, setting a verification strength indicator.
-
-### 3. AI-Powered Compliance Orchestrator
-The engine utilizes a custom AI Agent (powered by Qwen 3 Plus or OpenAI-compatible LLMs) to analyze the correlated findings and log evidence. It calculates risk scores, verifies compliance policies, and executes risk mitigation protocols.
-
-### 4. Redis State Tracking
-All incidents maintain live state in a Redis database. State transitions are recorded with timestamps, action completion rates, and transaction rollbacks.
-
-### 5. Auto-Containment Policy Gates
-Actions (like account blocks, transaction holds) are only executed if all the following gates pass:
-* **Autopilot Mode**: The autopilot setting is explicitly enabled.
-* **Verification**: Log verification state is confirmed.
-* **OPA Authorization**: Open Policy Agent authorization returns `allow`.
-
----
-
-## Getting Started
-
-### Prerequisites
-* **Python 3.11+**
-* **Apache Kafka & Redis**
-* **PostgreSQL Database**
-
-### Running the Engine (Host Mode)
-1. Install Python requirements:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Start the engine:
-   ```bash
-   python main.py
-   ```
-
-### Standalone Container Mode
-```bash
-docker build -t truetrace-agent-engine .
-docker run -d \
-  -e KAFKA_BROKERS=host.docker.internal:9094 \
-  -e REDIS_URL=redis://host.docker.internal:6379/0 \
-  -e DATABASE_URL=postgresql://postgres:1@host.docker.internal:5432/truetrace \
-  -e LLM_PROVIDER=bedrock \
-  --name truetrace-agent-engine-service \
-  truetrace-agent-engine
-```
-
----
-
-## Testing
-
-Run tests using `pytest` inside the engine directory:
+## Chạy kiểm thử
 
 ```bash
-pytest
+python -m pip install -r requirements.txt
+python -m pytest -q
 ```
 
-<!-- CI/CD Sync Trigger -->
+## Chạy local
+
+Engine cần Kafka và backend TrueTrace:
+
+```bash
+python main.py
+```
+
+Health endpoint: `GET http://localhost:8080/health`.
+
+## Chế độ AI
+
+Mặc định là `demo`, chạy offline và trả kết quả xác định để demo/test. Không dùng
+kết quả demo như một phán quyết gian lận.
+
+Alibaba Model Studio:
+
+```dotenv
+VISION_API_PROVIDER=alibaba-model-studio
+VISION_API_KEY=...
+VISION_API_ENDPOINT=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+VISION_MODEL=qwen-vl-plus
+
+LLM_PROVIDER=dashscope
+LLM_API_KEY=...
+LLM_API_ENDPOINT=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+LLM_MODEL=qwen-plus
+```
+
+Alibaba eKYC gateway:
+
+```dotenv
+VISION_API_PROVIDER=alibaba-ekyc
+VISION_API_ENDPOINT=https://your-normalizing-gateway.example/deepfake
+VISION_API_KEY=...
+```
+
+Gateway phải trả các trường chuẩn hóa `deepfake_probability`,
+`face_match_score`, `liveness_score`, `signals` và `details`.
+
+Đối chiếu CCCD quốc gia là integration giả định và chỉ được gọi khi cấu hình:
+
+```dotenv
+IDENTITY_REGISTRY_ENDPOINT=https://registry-gateway.example/verify
+IDENTITY_REGISTRY_API_KEY=...
+```
+
+## Ngưỡng rapid mule mặc định
+
+- nhận tối thiểu 1 tỷ VND;
+- chuyển tới tối thiểu 20 tài khoản;
+- trong 60 giây;
+- tổng tiền đi tối thiểu 80% tiền vào;
+- risk score từ 7/10 sẽ tạo freeze + alert + STR draft.
+
+Mọi ngưỡng đều có biến môi trường tương ứng trong
+`truetrace-deployment/.env.example`.

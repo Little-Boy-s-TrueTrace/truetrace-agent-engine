@@ -20,13 +20,17 @@ async def consume_kyc(agent: DeepfakeInspectorAgent):
         Config.TOPIC_KYC_SUBMISSIONS,
         bootstrap_servers=Config.KAFKA_BOOTSTRAP,
         group_id=Config.KAFKA_GROUP_ID,
-        auto_offset_reset="earliest"
+        auto_offset_reset="earliest",
+        max_partition_fetch_bytes=Config.KAFKA_MAX_MESSAGE_BYTES,
     )
     await consumer.start()
     try:
         async for msg in consumer:
-            data = json.loads(msg.value.decode('utf-8'))
-            await agent.analyze_kyc(data)
+            try:
+                data = json.loads(msg.value.decode('utf-8'))
+                await agent.analyze_kyc(data)
+            except Exception:
+                logger.exception("KYC event failed; continuing with the next event")
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -39,13 +43,17 @@ async def consume_transactions(agent: MoneyTrailAgent):
         Config.TOPIC_TRANSACTIONS,
         bootstrap_servers=Config.KAFKA_BOOTSTRAP,
         group_id=Config.KAFKA_GROUP_ID,
-        auto_offset_reset="earliest"
+        auto_offset_reset="earliest",
+        max_partition_fetch_bytes=Config.KAFKA_MAX_MESSAGE_BYTES,
     )
     await consumer.start()
     try:
         async for msg in consumer:
-            data = json.loads(msg.value.decode('utf-8'))
-            await agent.process_transaction(data)
+            try:
+                data = json.loads(msg.value.decode('utf-8'))
+                await agent.process_transaction(data)
+            except Exception:
+                logger.exception("Transaction event failed; continuing with the next event")
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -58,14 +66,18 @@ async def consume_alerts(agent: AmlReportAgent):
         Config.TOPIC_ALERTS,
         bootstrap_servers=Config.KAFKA_BOOTSTRAP,
         group_id=Config.KAFKA_GROUP_ID,
-        auto_offset_reset="earliest"
+        auto_offset_reset="earliest",
+        max_partition_fetch_bytes=Config.KAFKA_MAX_MESSAGE_BYTES,
     )
     await consumer.start()
     try:
         async for msg in consumer:
-            data = json.loads(msg.value.decode('utf-8'))
-            if data.get('needs_str', False):
-                await agent.generate_report(data)
+            try:
+                data = json.loads(msg.value.decode('utf-8'))
+                if data.get('needs_str', False):
+                    await agent.generate_report(data)
+            except Exception:
+                logger.exception("AML alert event failed; continuing with the next event")
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -74,7 +86,10 @@ async def consume_alerts(agent: AmlReportAgent):
         await consumer.stop()
 
 async def start_kafka_producer():
-    producer = AIOKafkaProducer(bootstrap_servers=Config.KAFKA_BOOTSTRAP)
+    producer = AIOKafkaProducer(
+        bootstrap_servers=Config.KAFKA_BOOTSTRAP,
+        max_request_size=Config.KAFKA_MAX_MESSAGE_BYTES,
+    )
     await producer.start()
     return producer
 

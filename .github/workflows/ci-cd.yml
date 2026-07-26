@@ -1,4 +1,4 @@
-name: SOAR Engine CI/CD Pipeline
+name: TrueTrace Agent Engine CI/CD
 
 on:
   push:
@@ -7,8 +7,25 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  test:
+    name: Test multi-agent engine
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    - name: Run tests
+      run: pytest -q
+
   docker-hub-push:
-    name: Build & Push SOAR Engine Image to Docker Hub
+    name: Build & Push Agent Engine Image to Docker Hub
+    needs: test
     runs-on: ubuntu-latest
     env:
       DOCKER_USER: ${{ secrets.DOCKER_HUB_USERNAME }}

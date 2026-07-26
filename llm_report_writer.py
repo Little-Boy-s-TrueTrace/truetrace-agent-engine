@@ -1,24 +1,72 @@
+import json
+
+import httpx
+
+from config import Config
+
+
 class LlmReportWriter:
-    def __init__(self, provider: str = 'mock'):
+    def __init__(self, provider: str = "demo"):
         self.provider = provider
-        
+
     async def generate_str_narrative(self, evidence: dict) -> dict:
-        if self.provider == 'mock':
-            return self._mock_generate(evidence)
-        elif self.provider == 'bedrock':
-            return self._bedrock_generate(evidence)
-        else:
-            raise ValueError(f"Unknown provider: {self.provider}")
-            
-    def _mock_generate(self, evidence: dict) -> dict:
+        if self.provider in {"demo", "mock"}:
+            return self._demo_generate(evidence)
+        if self.provider in {"dashscope", "alibaba", "qwen"}:
+            return await self._dashscope_generate(evidence)
+        raise ValueError(f"Unsupported LLM_PROVIDER: {self.provider}")
+
+    @staticmethod
+    def _demo_generate(evidence: dict) -> dict:
+        alert = evidence.get("alert") or {}
+        patterns = ", ".join(
+            item.get("pattern", "unknown") for item in alert.get("findings", [])
+        ) or "chưa xác định"
+        account = alert.get("account") or "không xác định"
+        score = alert.get("risk_score", 0)
         return {
-            "narrative_vi": "Báo cáo Giao dịch Đáng ngờ (STR). Khách hàng có dấu hiệu sử dụng tài khoản ảo (Deepfake). Các giao dịch liên tục và chia nhỏ để lách luật.",
-            "narrative_en": "Suspicious Transaction Report (STR). The customer shows signs of using a virtual account (Deepfake). Transactions are continuous and structured to bypass regulations."
+            "narrative_vi": (
+                f"Hệ thống TrueTrace ghi nhận tài khoản {account} có điểm rủi ro {score}/10 "
+                f"với các chỉ báo: {patterns}. Dữ liệu giao dịch, dấu thời gian và quan hệ "
+                "đối tác đã được bảo toàn trong hồ sơ chứng cứ. Đề nghị chuyên viên AML "
+                "đối soát chủ thể, mục đích giao dịch và quyết định gửi STR."
+            ),
+            "narrative_en": (
+                f"TrueTrace identified account {account} with risk score {score}/10 and "
+                f"indicators: {patterns}. Transaction timestamps and counterparty links "
+                "are preserved in the evidence package. AML officer review is required."
+            ),
         }
-        
-    def _bedrock_generate(self, evidence: dict) -> dict:
-        # Placeholder for AWS Bedrock with Qwen
-        return {
-            "narrative_vi": "Báo cáo STR từ Bedrock (chưa triển khai).",
-            "narrative_en": "STR report from Bedrock (not yet implemented)."
+
+    async def _dashscope_generate(self, evidence: dict) -> dict:
+        if not Config.LLM_API_KEY:
+            raise RuntimeError("dashscope requires LLM_API_KEY")
+        payload = {
+            "model": Config.LLM_MODEL,
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You draft Vietnamese bank Suspicious Transaction Reports. Never invent facts. "
+                        "Separate observations from inferences. Return JSON with narrative_vi and "
+                        "narrative_en. The draft always requires human approval before submission."
+                    ),
+                },
+                {"role": "user", "content": json.dumps(evidence, ensure_ascii=False, default=str)},
+            ],
         }
+        headers = {
+            "Authorization": f"Bearer {Config.LLM_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        url = f"{Config.LLM_API_ENDPOINT.rstrip('/')}/chat/completions"
+        async with httpx.AsyncClient(timeout=Config.LLM_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        result = json.loads(content)
+        if not result.get("narrative_vi") or not result.get("narrative_en"):
+            raise ValueError("Qwen response is missing required bilingual narratives")
+        return result
