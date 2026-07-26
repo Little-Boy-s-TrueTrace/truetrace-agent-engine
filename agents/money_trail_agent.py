@@ -121,23 +121,50 @@ class MoneyTrailAgent:
             logger.error(f"Error freezing account {account}: {e}")
 
     async def _create_alert(self, finding: dict, amount: float) -> None:
+        rapid = next(
+            (
+                item["details"]
+                for item in finding["findings"]
+                if item.get("pattern") == "rapid_mule_dispersion"
+                and isinstance(item.get("details"), dict)
+            ),
+            {},
+        )
+        suspicious_amount = max(
+            amount,
+            float(rapid.get("total_in", 0)),
+            float(rapid.get("total_out", 0)),
+        )
+        outgoing = self.graph.outgoing.get(finding["account"], [])
         payload = {
             "alertType": "MULE_SPLIT",
             "primaryAccountNumber": finding["account"],
             "triggerTransactionId": str(finding["tx_id"]),
             "riskScore": finding["risk_score"],
-            "totalAmount": amount,
+            "totalAmount": suspicious_amount,
             "currency": "VND",
             "timeWindowSeconds": Config.MONEY_TRAIL_WINDOW_SECONDS,
             "agentFindingJson": json_text(finding),
             "graphDataJson": json_text(finding["graph"]),
             "involvedAccountsJson": json_text(
-                sorted({edge[0] for edge in self.graph.outgoing.get(finding["account"], [])})
+                sorted({edge[0] for edge in outgoing})
+            ),
+            "transactionChainJson": json_text(
+                [
+                    {
+                        "to_account": edge[0],
+                        "amount": edge[1],
+                        "timestamp": edge[2],
+                        "tx_id": edge[3],
+                    }
+                    for edge in outgoing
+                ]
             ),
         }
         try:
             created = await request("POST", "/api/aml/alerts", payload)
             finding["alert_id"] = created.get("alertId")
+            finding["alert_db_id"] = created.get("id")
         except Exception as exc:
             logger.error("Failed to create AML alert: %s", exc)
 
@@ -147,4 +174,18 @@ class MoneyTrailAgent:
             return time.time()
         if isinstance(value, (int, float)):
             return float(value)
+        if isinstance(value, (list, tuple)):
+            if len(value) < 3:
+                raise ValueError("timestamp array requires at least year, month and day")
+            parts = [int(part) for part in value]
+            year, month, day = parts[:3]
+            hour = parts[3] if len(parts) > 3 else 0
+            minute = parts[4] if len(parts) > 4 else 0
+            second = parts[5] if len(parts) > 5 else 0
+            # Jackson represents LocalDateTime as
+            # [year, month, day, hour, minute, second, nanoseconds].
+            microsecond = parts[6] // 1000 if len(parts) > 6 else 0
+            return datetime(
+                year, month, day, hour, minute, second, microsecond
+            ).timestamp()
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()

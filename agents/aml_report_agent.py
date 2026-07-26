@@ -51,11 +51,28 @@ class AmlReportAgent:
                 "POST",
                 "/api/str/reports",
                 {
+                    "alertId": report["evidence"]["alert"].get("alert_db_id"),
                     "reportType": "STR",
                     "status": "DRAFT",
                     "narrativeTextVi": report["narrative_vi"],
                     "narrativeTextEn": report["narrative_en"],
                     "evidenceSummaryJson": json_text(report["evidence"]),
+                    "transactionDetailsJson": json_text(
+                        report["evidence"]["alert"].get("graph", {})
+                    ),
+                    "totalAmount": max(
+                        float(
+                            report["evidence"]["alert"]
+                            .get("graph", {})
+                            .get("total_in", 0)
+                        ),
+                        float(
+                            report["evidence"]["alert"]
+                            .get("graph", {})
+                            .get("total_out", 0)
+                        ),
+                    ),
+                    "currency": "VND",
                     "riskScore": report["evidence"]["alert"].get("risk_score"),
                     "riskLevel": "HIGH",
                     "recommendedActionsJson": json_text(

@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -6,6 +7,16 @@ import pytest
 from agents.aml_report_agent import AmlReportAgent
 from agents.deepfake_agent import DeepfakeInspectorAgent
 from agents.money_trail_agent import MoneyTrailAgent
+
+
+def test_money_trail_accepts_jackson_local_datetime_array():
+    value = [2026, 7, 26, 14, 59, 14, 30256906]
+
+    timestamp = MoneyTrailAgent._timestamp(value)
+
+    assert datetime.fromtimestamp(timestamp) == datetime(
+        2026, 7, 26, 14, 59, 14, 30256
+    )
 
 
 @pytest.mark.asyncio
@@ -71,6 +82,34 @@ async def test_money_trail_agent_freezes_and_escalates_rapid_dispersion():
 
 
 @pytest.mark.asyncio
+async def test_money_trail_alert_uses_full_suspicious_amount(monkeypatch):
+    agent = MoneyTrailAgent()
+    backend = AsyncMock(return_value={"id": 9, "alertId": "alert-9"})
+    monkeypatch.setattr("agents.money_trail_agent.request", backend)
+    agent.graph.add_transaction("in-1", "origin", "mule", 1_000_000_000, 100)
+    agent.graph.add_transaction("out-1", "mule", "target", 800_000_000, 101)
+    finding = {
+        "tx_id": "out-1",
+        "account": "mule",
+        "risk_score": 10,
+        "graph": agent.graph.get_account_stats("mule"),
+        "findings": [
+            {
+                "pattern": "rapid_mule_dispersion",
+                "details": {"total_in": 1_000_000_000, "total_out": 800_000_000},
+            }
+        ],
+    }
+
+    await agent._create_alert(finding, 40_000_000)
+
+    payload = backend.await_args.args[2]
+    assert payload["totalAmount"] == 1_000_000_000
+    assert finding["alert_id"] == "alert-9"
+    assert finding["alert_db_id"] == 9
+
+
+@pytest.mark.asyncio
 async def test_aml_report_is_draft_and_requires_human_approval(monkeypatch):
     agent = AmlReportAgent()
     backend = AsyncMock(return_value={})
@@ -79,8 +118,10 @@ async def test_aml_report_is_draft_and_requires_human_approval(monkeypatch):
     report = await agent.generate_report(
         {
             "alert_id": "alert-1",
+            "alert_db_id": 1,
             "account": "mule",
             "risk_score": 10,
+            "graph": {"total_in": 1_000_000_000, "total_out": 800_000_000},
             "findings": [{"pattern": "rapid_mule_dispersion"}],
         }
     )
@@ -88,3 +129,6 @@ async def test_aml_report_is_draft_and_requires_human_approval(monkeypatch):
     assert report["status"] == "DRAFT"
     assert report["human_approval_required"] is True
     assert "mule" in report["narrative_vi"]
+    payload = backend.await_args.args[2]
+    assert payload["alertId"] == 1
+    assert payload["totalAmount"] == 1_000_000_000
