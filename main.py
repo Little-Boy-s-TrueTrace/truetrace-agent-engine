@@ -95,6 +95,7 @@ async def start_kafka_producer():
 
 async def main():
     logger.info("Starting TrueTrace Multi-Agent Orchestrator...")
+    Config.validate_runtime()
     
     # Init Kafka Producer
     producer = await start_kafka_producer()

@@ -1,6 +1,7 @@
 import os
 
 class Config:
+    ENVIRONMENT = os.getenv('TRUETRACE_ENV', 'demo').strip().lower()
     # Kafka
     KAFKA_BOOTSTRAP = os.getenv('KAFKA_BOOTSTRAP', 'localhost:9092')
     KAFKA_GROUP_ID = os.getenv('KAFKA_GROUP_ID', 'truetrace-engine')
@@ -29,6 +30,8 @@ class Config:
         'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
     )
     VISION_MODEL = os.getenv('VISION_MODEL', 'qwen-vl-plus')
+    IDENTITY_REGISTRY_ENDPOINT = os.getenv('IDENTITY_REGISTRY_ENDPOINT', '')
+    IDENTITY_REGISTRY_API_KEY = os.getenv('IDENTITY_REGISTRY_API_KEY', '')
     VISION_TIMEOUT_SECONDS = float(os.getenv('VISION_TIMEOUT_SECONDS', '20'))
     MAX_IMAGE_BYTES = int(os.getenv('MAX_IMAGE_BYTES', str(8 * 1024 * 1024)))
     DEEPFAKE_REVIEW_THRESHOLD = float(os.getenv('DEEPFAKE_REVIEW_THRESHOLD', '0.50'))
@@ -59,3 +62,32 @@ class Config:
     RAPID_MOVEMENT_MIN_INFLOW_VND = int(os.getenv('RAPID_MOVEMENT_MIN_INFLOW_VND', '1000000000'))
     RAPID_MOVEMENT_RATIO = float(os.getenv('RAPID_MOVEMENT_RATIO', '0.80'))
     STRUCTURING_THRESHOLD_VND = int(os.getenv('STRUCTURING_THRESHOLD_VND', '200000000'))
+
+    @classmethod
+    def validate_runtime(cls):
+        """Fail closed when a production process still uses demo credentials/providers."""
+        if cls.ENVIRONMENT != 'production':
+            return
+
+        errors = []
+        if cls.VISION_API_PROVIDER not in {'alibaba-model-studio', 'alibaba-ekyc'}:
+            errors.append('VISION_API_PROVIDER must use an Alibaba production provider')
+        if not cls.VISION_API_KEY:
+            errors.append('VISION_API_KEY is required')
+        if not cls.IDENTITY_REGISTRY_ENDPOINT or not cls.IDENTITY_REGISTRY_API_KEY:
+            errors.append('IDENTITY_REGISTRY_ENDPOINT and IDENTITY_REGISTRY_API_KEY are required')
+        if cls.LLM_PROVIDER != 'dashscope' or not cls.LLM_API_KEY:
+            errors.append('LLM_PROVIDER=dashscope and LLM_API_KEY are required')
+        if len(cls.INTERNAL_API_TOKEN) < 32:
+            errors.append('TRUETRACE_SECURITY_SYNC_TOKEN must contain at least 32 characters')
+        if cls.DB_PASSWORD in {'', 'postgres', 'password'}:
+            errors.append('DB_PASSWORD must not use a demo/default value')
+        if cls.KAFKA_BOOTSTRAP.startswith('localhost'):
+            errors.append('KAFKA_BOOTSTRAP must target production infrastructure')
+        if cls.REDIS_HOST in {'localhost', '127.0.0.1'}:
+            errors.append('REDIS_HOST must target production infrastructure')
+
+        if errors:
+            raise RuntimeError(
+                'Production configuration rejected: ' + '; '.join(errors)
+            )
