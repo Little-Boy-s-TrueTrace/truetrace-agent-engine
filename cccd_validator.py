@@ -1,22 +1,22 @@
 import re
 
 PROVINCES = {
-    "001": "Hà Nội", "002": "Hà Giang", "004": "Cao Bằng", "006": "Bắc Kạn",
-    "008": "Tuyên Quang", "010": "Lào Cai", "011": "Điện Biên", "012": "Lai Châu",
-    "014": "Sơn La", "015": "Yên Bái", "017": "Hòa Bình", "019": "Thái Nguyên",
-    "020": "Lạng Sơn", "022": "Quảng Ninh", "024": "Bắc Giang", "025": "Phú Thọ",
-    "026": "Vĩnh Phúc", "027": "Bắc Ninh", "030": "Hải Dương", "031": "Hải Phòng",
-    "033": "Hưng Yên", "034": "Thái Bình", "035": "Hà Nam", "036": "Nam Định",
-    "037": "Ninh Bình", "038": "Thanh Hóa", "040": "Nghệ An", "042": "Hà Tĩnh",
-    "044": "Quảng Bình", "045": "Quảng Trị", "046": "Thừa Thiên Huế", "048": "Đà Nẵng",
-    "049": "Quảng Nam", "051": "Quảng Ngãi", "052": "Bình Định", "054": "Phú Yên",
-    "056": "Khánh Hòa", "058": "Ninh Thuận", "060": "Bình Thuận", "062": "Kon Tum",
-    "064": "Gia Lai", "066": "Đắk Lắk", "067": "Đắk Nông", "068": "Lâm Đồng",
-    "070": "Bình Phước", "072": "Tây Ninh", "074": "Bình Dương", "075": "Đồng Nai",
-    "077": "Bà Rịa - Vũng Tàu", "079": "Hồ Chí Minh", "080": "Long An", "082": "Tiền Giang",
-    "083": "Bến Tre", "084": "Trà Vinh", "086": "Vĩnh Long", "087": "Đồng Tháp",
-    "089": "An Giang", "091": "Kiên Giang", "092": "Cần Thơ", "093": "Hậu Giang",
-    "094": "Sóc Trăng", "095": "Bạc Liêu", "096": "Cà Mau"
+    "001": "Ha Noi", "002": "Ha Giang", "004": "Cao Bang", "006": "Bac Kan",
+    "008": "Tuyen Quang", "010": "Lao Cai", "011": "Dien Bien", "012": "Lai Chau",
+    "014": "Son La", "015": "Yen Bai", "017": "Hoa Binh", "019": "Thai Nguyen",
+    "020": "Lang Son", "022": "Quang Ninh", "024": "Bac Giang", "025": "Phu Tho",
+    "026": "Vinh Phuc", "027": "Bac Ninh", "030": "Hai Duong", "031": "Hai Phong",
+    "033": "Hung Yen", "034": "Thai Binh", "035": "Ha Nam", "036": "Nam Dinh",
+    "037": "Ninh Binh", "038": "Thanh Hoa", "040": "Nghe An", "042": "Ha Tinh",
+    "044": "Quang Binh", "045": "Quang Tri", "046": "Thua Thien Hue", "048": "Da Nang",
+    "049": "Quang Nam", "051": "Quang Ngai", "052": "Binh Dinh", "054": "Phu Yen",
+    "056": "Khanh Hoa", "058": "Ninh Thuan", "060": "Binh Thuan", "062": "Kon Tum",
+    "064": "Gia Lai", "066": "Dak Lak", "067": "Dak Nong", "068": "Lam Dong",
+    "070": "Binh Phuoc", "072": "Tay Ninh", "074": "Binh Duong", "075": "Dong Nai",
+    "077": "Ba Ria - Vung Tau", "079": "Ho Chi Minh", "080": "Long An", "082": "Tien Giang",
+    "083": "Ben Tre", "084": "Tra Vinh", "086": "Vinh Long", "087": "Dong Thap",
+    "089": "An Giang", "091": "Kien Giang", "092": "Can Tho", "093": "Hau Giang",
+    "094": "Soc Trang", "095": "Bac Lieu", "096": "Ca Mau"
 }
 
 def validate_format(cccd_number: str) -> dict:

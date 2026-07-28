@@ -1,22 +1,21 @@
 # TrueTrace Multi-Agent Engine
 
-Runtime Python bất đồng bộ điều phối ba agent tuân thủ:
+Asynchronous Python runtime orchestrating three compliance agents:
 
-- Deepfake Inspector xử lý KYC, CCCD, Alibaba vision/eKYC và identity registry.
-- Money-Trail Explorer phân tích đồ thị giao dịch theo cửa sổ trượt, đóng băng tài
-  khoản có rủi ro cao và tạo AML alert.
-- AML Reporter dùng Qwen soạn STR song ngữ ở trạng thái nháp để người thật duyệt.
+- Deepfake Inspector handles KYC, CCCD, Alibaba vision/eKYC, and identity registry.
+- Money-Trail Explorer analyzes the transaction graph using a sliding window, freezes high-risk accounts, and creates AML alerts.
+- AML Reporter uses Qwen to compose bilingual STR drafts for human review.
 
-## Chạy kiểm thử
+## Running Tests
 
 ```bash
 python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-## Chạy local
+## Running Locally
 
-Engine cần Kafka và backend TrueTrace:
+The engine requires Kafka and the TrueTrace backend:
 
 ```bash
 python main.py
@@ -24,10 +23,9 @@ python main.py
 
 Health endpoint: `GET http://localhost:8080/health`.
 
-## Chế độ AI
+## AI Mode
 
-Mặc định là `demo`, chạy offline và trả kết quả xác định để demo/test. Không dùng
-kết quả demo như một phán quyết gian lận.
+Default is `demo`, running offline with deterministic results for demo/test. Do not use demo results as a fraud verdict.
 
 Alibaba Model Studio:
 
@@ -51,23 +49,21 @@ VISION_API_ENDPOINT=https://your-normalizing-gateway.example/deepfake
 VISION_API_KEY=...
 ```
 
-Gateway phải trả các trường chuẩn hóa `deepfake_probability`,
-`face_match_score`, `liveness_score`, `signals` và `details`.
+The gateway must return standardized fields: `deepfake_probability`, `face_match_score`, `liveness_score`, `signals`, and `details`.
 
-Đối chiếu CCCD quốc gia là integration giả định và chỉ được gọi khi cấu hình:
+National CCCD verification is a hypothetical integration and is only invoked when configured:
 
 ```dotenv
 IDENTITY_REGISTRY_ENDPOINT=https://registry-gateway.example/verify
 IDENTITY_REGISTRY_API_KEY=...
 ```
 
-## Ngưỡng rapid mule mặc định
+## Default Rapid Mule Thresholds
 
-- nhận tối thiểu 1 tỷ VND;
-- chuyển tới tối thiểu 20 tài khoản;
-- trong 60 giây;
-- tổng tiền đi tối thiểu 80% tiền vào;
-- risk score từ 7/10 sẽ tạo freeze + alert + STR draft.
+- Minimum inflow of 1 billion VND;
+- Transfers to at least 20 accounts;
+- Within 60 seconds;
+- Total outflow at least 80% of inflow;
+- Risk score of 7/10 triggers freeze + alert + STR draft.
 
-Mọi ngưỡng đều có biến môi trường tương ứng trong
-`truetrace-deployment/.env.example`.
+All thresholds have corresponding environment variables in `truetrace-deployment/.env.example`.

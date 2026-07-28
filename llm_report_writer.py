@@ -21,15 +21,15 @@ class LlmReportWriter:
         alert = evidence.get("alert") or {}
         patterns = ", ".join(
             item.get("pattern", "unknown") for item in alert.get("findings", [])
-        ) or "chưa xác định"
-        account = alert.get("account") or "không xác định"
+        ) or "unidentified"
+        account = alert.get("account") or "unidentified"
         score = alert.get("risk_score", 0)
         return {
             "narrative_vi": (
-                f"Hệ thống TrueTrace ghi nhận tài khoản {account} có điểm rủi ro {score}/10 "
-                f"với các chỉ báo: {patterns}. Dữ liệu giao dịch, dấu thời gian và quan hệ "
-                "đối tác đã được bảo toàn trong hồ sơ chứng cứ. Đề nghị chuyên viên AML "
-                "đối soát chủ thể, mục đích giao dịch và quyết định gửi STR."
+                f"TrueTrace system recorded account {account} with risk score {score}/10 "
+                f"and indicators: {patterns}. Transaction data, timestamps, and counterparty "
+                "relationships have been preserved in the evidence package. AML officer "
+                "review of the subject, transaction purpose, and STR submission decision is required."
             ),
             "narrative_en": (
                 f"TrueTrace identified account {account} with risk score {score}/10 and "
