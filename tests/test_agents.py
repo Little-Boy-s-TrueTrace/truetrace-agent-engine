@@ -46,6 +46,67 @@ async def test_deepfake_agent_produces_reject_recommendation(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_deepfake_demo_rejects_synthetic_filename_marker(monkeypatch):
+    agent = DeepfakeInspectorAgent()
+    agent.identity_registry.verify = AsyncMock(
+        return_value={"status": "VERIFIED", "matched": True, "source": "test"}
+    )
+    backend = AsyncMock(return_value={})
+    monkeypatch.setattr("agents.deepfake_agent.request", backend)
+
+    finding = await agent.analyze_kyc(
+        {
+            "session_id": "kyc-filename-marker",
+            "customer_name": "Nguyen Van A",
+            "cccd_number": "001200000001",
+            "selfie_filename": "synthetic_deepfake_test.png",
+            "face_image_base64": base64.b64encode(b"ordinary png bytes").decode(),
+            "id_front_image_base64": base64.b64encode(b"front").decode(),
+            "id_back_image_base64": base64.b64encode(b"back").decode(),
+        }
+    )
+
+    assert finding["vision_analysis"]["deepfake_probability"] == 0.91
+    assert backend.await_args.args[2]["status"] == "REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_deepfake_agent_approves_clean_complete_evidence(monkeypatch):
+    agent = DeepfakeInspectorAgent()
+    agent.identity_registry.verify = AsyncMock(
+        return_value={"status": "VERIFIED", "matched": True, "source": "test"}
+    )
+    backend = AsyncMock(return_value={})
+    monkeypatch.setattr("agents.deepfake_agent.request", backend)
+    selfie = base64.b64encode(b"clean selfie image").decode()
+    front = base64.b64encode(b"cccd front image").decode()
+    back = base64.b64encode(b"cccd back image").decode()
+
+    finding = await agent.analyze_kyc(
+        {
+            "session_id": "kyc-clean",
+            "customer_id": "42",
+            "account_id": "ACC-424242",
+            "customer_name": "Nguyen Van A",
+            "cccd_number": "001200000001",
+            "face_image_base64": selfie,
+            "id_front_image_base64": front,
+            "id_back_image_base64": back,
+            "timestamp": "2026-01-01T00:00:00Z",
+        }
+    )
+
+    payload = backend.await_args.args[2]
+    assert payload["status"] == "APPROVED"
+    assert payload["documentIntegrityScore"] == 100
+    assert finding["customer_id"] == "42"
+    assert finding["account_id"] == "ACC-424242"
+    assert finding["evidence"]["selfie"]["byte_size"] == len(b"clean selfie image")
+    assert finding["evidence"]["id_front"]["sha256"]
+    assert finding["evidence"]["id_back"]["sha256"]
+
+
+@pytest.mark.asyncio
 async def test_money_trail_agent_freezes_and_escalates_rapid_dispersion():
     agent = MoneyTrailAgent()
     agent._freeze_account = AsyncMock()
@@ -76,9 +137,71 @@ async def test_money_trail_agent_freezes_and_escalates_rapid_dispersion():
 
     assert result is not None
     assert result["needs_str"] is True
+    assert result["total_amount"] == 1_000_000_000
     assert any(item["pattern"] == "rapid_mule_dispersion" for item in result["findings"])
+    roles = {
+        item["accountNumber"]: item["role"]
+        for item in result["involved_accounts"]
+    }
+    node_types = {
+        item["id"]: item["type"]
+        for item in result["graph_data"]["nodes"]
+    }
+    assert roles["origin"] == "SOURCE"
+    assert roles["mule"] == "INTERMEDIARY"
+    assert roles["beneficiary-19"] == "DESTINATION"
+    assert node_types["origin"] == "source"
+    assert node_types["mule"] == "intermediary"
+    assert node_types["beneficiary-19"] == "destination"
     agent._freeze_account.assert_awaited_with("mule")
     agent._create_alert.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_money_trail_repeated_structuring_escalates_on_second_transfer():
+    agent = MoneyTrailAgent()
+    agent._freeze_account = AsyncMock()
+    agent._create_alert = AsyncMock()
+    now = 1_800_000_000.0
+
+    first = await agent.process_transaction(
+        {
+            "id": "structured-1",
+            "sourceAccountNumber": "ACC-SOURCE",
+            "targetAccountNumber": "ACC-TARGET",
+            "amount": 190_000_000,
+            "timestamp": now,
+        }
+    )
+    assert first["needs_str"] is False
+    assert first["alert_type"] == "STRUCTURING"
+    assert first["risk_score"] < 7
+    agent._freeze_account.assert_not_awaited()
+    agent._create_alert.assert_not_awaited()
+
+    second = await agent.process_transaction(
+        {
+            "id": "structured-2",
+            "sourceAccountNumber": "ACC-SOURCE",
+            "targetAccountNumber": "ACC-TARGET",
+            "amount": 190_000_000,
+            "timestamp": now + 10,
+        }
+    )
+
+    assert second["needs_str"] is True
+    assert second["risk_score"] >= 7
+    assert second["alert_type"] == "STRUCTURING"
+    assert second["total_amount"] == 380_000_000
+    assert len(second["transaction_chain"]) == 2
+    roles = {
+        item["accountNumber"]: item["role"]
+        for item in second["involved_accounts"]
+    }
+    assert roles["ACC-SOURCE"] == "SOURCE"
+    assert roles["ACC-TARGET"] == "DESTINATION"
+    agent._freeze_account.assert_awaited_once_with("ACC-SOURCE")
+    agent._create_alert.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -132,3 +255,55 @@ async def test_aml_report_is_draft_and_requires_human_approval(monkeypatch):
     payload = backend.await_args.args[2]
     assert payload["alertId"] == 1
     assert payload["totalAmount"] == 1_000_000_000
+
+
+@pytest.mark.asyncio
+async def test_aml_report_enriches_subject_transactions_and_regulatory_refs(monkeypatch):
+    agent = AmlReportAgent()
+
+    async def backend_request(method, path, payload=None):
+        if method == "GET":
+            assert path == "/api/compliance/accounts/ACC-424242/profile"
+            return {
+                "customerId": "42",
+                "fullName": "Nguyen Van A",
+                "cccdNumber": "001200000001",
+                "kycSessionDbId": 7,
+            }
+        assert method == "POST"
+        return {"id": 11, **(payload or {})}
+
+    backend = AsyncMock(side_effect=backend_request)
+    monkeypatch.setattr("agents.aml_report_agent.request", backend)
+    transaction_chain = [
+        {
+            "txId": "structured-2",
+            "from": "ACC-424242",
+            "to": "ACC-111111",
+            "amount": 190_000_000,
+            "timestamp": "2026-01-01T00:00:10Z",
+            "channel": "bank_transfer",
+        }
+    ]
+
+    report = await agent.generate_report(
+        {
+            "alert_id": "alert-11",
+            "alert_db_id": 11,
+            "account": "ACC-424242",
+            "risk_score": 8,
+            "total_amount": 370_000_000,
+            "currency": "VND",
+            "transaction_chain": transaction_chain,
+            "findings": [{"pattern": "structuring"}],
+        }
+    )
+
+    post_payload = backend.await_args_list[-1].args[2]
+    assert report["status"] == "DRAFT"
+    assert post_payload["subjectCustomerId"] == "42"
+    assert post_payload["subjectFullName"] == "Nguyen Van A"
+    assert post_payload["subjectCccdNumber"] == "001200000001"
+    assert post_payload["kycSessionId"] == 7
+    assert "structured-2" in post_payload["transactionDetailsJson"]
+    assert "09/2023/TT-NHNN" in post_payload["regulatoryReferencesJson"]

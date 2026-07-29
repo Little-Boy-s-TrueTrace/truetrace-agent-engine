@@ -72,6 +72,29 @@ class TransactionGraph:
         out_recent = [e for e in self.outgoing.get(account, []) if e[2] >= cutoff]
         return len(out_recent)
 
+    def get_structuring_activity(
+        self,
+        account: str,
+        lower_amount: float,
+        upper_amount: float,
+        time_window: float,
+        now: Optional[float] = None,
+    ) -> Dict[str, any]:
+        current = now if now is not None else time.time()
+        cutoff = current - time_window
+        matches = [
+            edge
+            for edge in self.outgoing.get(account, [])
+            if cutoff <= edge[2] <= current and lower_amount <= edge[1] <= upper_amount
+        ]
+        return {
+            "count": len(matches),
+            "total_amount": sum(edge[1] for edge in matches),
+            "transaction_ids": [str(edge[3]) for edge in matches],
+            "counterparties": sorted({edge[0] for edge in matches}),
+            "window_seconds": time_window,
+        }
+
     def get_account_stats(self, account: str) -> Dict[str, any]:
         total_in = sum(e[1] for e in self.incoming.get(account, []))
         total_out = sum(e[1] for e in self.outgoing.get(account, []))

@@ -2,7 +2,7 @@ import time
 import json
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from graph_analyzer import TransactionGraph
 from config import Config
 from backend_client import json_text, request
@@ -63,10 +63,18 @@ class MoneyTrailAgent:
             findings.append({"pattern": "velocity_anomaly", "details": f"{velocity} txs in last hour."})
             risk_score += 3.0
             
-        # 5. Structuring
-        if amount > Config.STRUCTURING_THRESHOLD_VND * 0.9 and amount <= Config.STRUCTURING_THRESHOLD_VND:
-            findings.append({"pattern": "structuring", "details": f"Amount {amount} near threshold."})
-            risk_score += 5.0
+        # 5. Repeated structuring: two near-threshold transfers inside the
+        # sliding window must cross the demo escalation threshold.
+        structuring = self.graph.get_structuring_activity(
+            from_acc,
+            Config.STRUCTURING_THRESHOLD_VND * 0.9,
+            Config.STRUCTURING_THRESHOLD_VND,
+            Config.MONEY_TRAIL_WINDOW_SECONDS,
+            timestamp,
+        )
+        if structuring["count"] > 0:
+            findings.append({"pattern": "structuring", "details": structuring})
+            risk_score += 8.0 if structuring["count"] >= 2 else 3.0
 
         rapid = self.graph.get_rapid_movement(
             from_acc,
@@ -83,14 +91,23 @@ class MoneyTrailAgent:
         if not findings:
             return None
             
+        evidence = self._build_evidence(from_acc)
         finding_report = {
             "tx_id": tx_id,
+            "trigger_transaction_id": str(tx_id),
             "account": from_acc,
             "risk_score": min(10.0, risk_score),
             "findings": findings,
             "graph": self.graph.get_account_stats(from_acc),
+            "alert_type": self._alert_type(findings),
+            "involved_accounts": evidence["involved_accounts"],
+            "transaction_chain": evidence["transaction_chain"],
+            "graph_data": evidence["graph_data"],
+            "total_amount": evidence["total_amount"],
+            "currency": "VND",
+            "time_window_seconds": Config.MONEY_TRAIL_WINDOW_SECONDS,
             "needs_str": risk_score >= Config.MONEY_TRAIL_FREEZE_THRESHOLD,
-            "timestamp": timestamp,
+            "timestamp": self._iso_timestamp(timestamp),
         }
         
         if risk_score >= Config.MONEY_TRAIL_FREEZE_THRESHOLD:
@@ -121,23 +138,23 @@ class MoneyTrailAgent:
             logger.error(f"Error freezing account {account}: {e}")
 
     async def _create_alert(self, finding: dict, amount: float) -> None:
+        evidence = self._build_evidence(finding["account"])
         rapid = next(
             (
-                item["details"]
-                for item in finding["findings"]
+                item.get("details", {})
+                for item in finding.get("findings", [])
                 if item.get("pattern") == "rapid_mule_dispersion"
-                and isinstance(item.get("details"), dict)
             ),
             {},
         )
         suspicious_amount = max(
-            amount,
+            float(amount),
+            float(finding.get("total_amount", 0)),
             float(rapid.get("total_in", 0)),
             float(rapid.get("total_out", 0)),
         )
-        outgoing = self.graph.outgoing.get(finding["account"], [])
         payload = {
-            "alertType": "MULE_SPLIT",
+            "alertType": finding.get("alert_type") or self._alert_type(finding["findings"]),
             "primaryAccountNumber": finding["account"],
             "triggerTransactionId": str(finding["tx_id"]),
             "riskScore": finding["risk_score"],
@@ -145,20 +162,12 @@ class MoneyTrailAgent:
             "currency": "VND",
             "timeWindowSeconds": Config.MONEY_TRAIL_WINDOW_SECONDS,
             "agentFindingJson": json_text(finding),
-            "graphDataJson": json_text(finding["graph"]),
+            "graphDataJson": json_text(finding.get("graph_data") or evidence["graph_data"]),
             "involvedAccountsJson": json_text(
-                sorted({edge[0] for edge in outgoing})
+                finding.get("involved_accounts") or evidence["involved_accounts"]
             ),
             "transactionChainJson": json_text(
-                [
-                    {
-                        "to_account": edge[0],
-                        "amount": edge[1],
-                        "timestamp": edge[2],
-                        "tx_id": edge[3],
-                    }
-                    for edge in outgoing
-                ]
+                finding.get("transaction_chain") or evidence["transaction_chain"]
             ),
         }
         try:
@@ -167,6 +176,104 @@ class MoneyTrailAgent:
             finding["alert_db_id"] = created.get("id")
         except Exception as exc:
             logger.error("Failed to create AML alert: %s", exc)
+
+    def _build_evidence(self, account: str) -> dict:
+        chain_by_id = {}
+        for source, amount, timestamp, tx_id in self.graph.incoming.get(account, []):
+            chain_by_id[str(tx_id)] = {
+                "txId": str(tx_id),
+                "from": source,
+                "to": account,
+                "amount": amount,
+                "timestamp": self._iso_timestamp(timestamp),
+                "channel": "bank_transfer",
+            }
+        for target, amount, timestamp, tx_id in self.graph.outgoing.get(account, []):
+            chain_by_id[str(tx_id)] = {
+                "txId": str(tx_id),
+                "from": account,
+                "to": target,
+                "amount": amount,
+                "timestamp": self._iso_timestamp(timestamp),
+                "channel": "bank_transfer",
+            }
+        transaction_chain = sorted(
+            chain_by_id.values(), key=lambda item: item["timestamp"]
+        )
+
+        account_totals = {}
+        for item in transaction_chain:
+            source = item["from"]
+            target = item["to"]
+            account_totals.setdefault(source, {"in": 0.0, "out": 0.0})
+            account_totals.setdefault(target, {"in": 0.0, "out": 0.0})
+            account_totals[source]["out"] += float(item["amount"])
+            account_totals[target]["in"] += float(item["amount"])
+
+        involved_accounts = []
+        for account_number, totals in sorted(account_totals.items()):
+            if totals["in"] > 0 and totals["out"] > 0:
+                role = "INTERMEDIARY"
+            elif totals["out"] > 0:
+                role = "SOURCE"
+            else:
+                role = "DESTINATION"
+            involved_accounts.append(
+                {
+                    "accountNumber": account_number,
+                    "role": role,
+                    "totalInflow": totals["in"],
+                    "totalOutflow": totals["out"],
+                }
+            )
+        graph_data = {
+            "nodes": [
+                {
+                    "id": item["accountNumber"],
+                    "label": item["accountNumber"],
+                    "type": item["role"].lower(),
+                    "riskLevel": "high" if item["accountNumber"] == account else "medium",
+                }
+                for item in involved_accounts
+            ],
+            "edges": [
+                {
+                    "source": item["from"],
+                    "target": item["to"],
+                    "amount": item["amount"],
+                    "timestamp": item["timestamp"],
+                }
+                for item in transaction_chain
+            ],
+        }
+        return {
+            "involved_accounts": involved_accounts,
+            "transaction_chain": transaction_chain,
+            "graph_data": graph_data,
+            "total_amount": max(
+                account_totals.get(account, {}).get("in", 0.0),
+                account_totals.get(account, {}).get("out", 0.0),
+            ),
+        }
+
+    @staticmethod
+    def _alert_type(findings: list[dict]) -> str:
+        patterns = {item.get("pattern") for item in findings}
+        for pattern, alert_type in (
+            ("rapid_mule_dispersion", "RAPID_MOVEMENT"),
+            ("circular_flow", "CIRCULAR_FLOW"),
+            ("structuring", "STRUCTURING"),
+            ("fan_out", "MULE_SPLIT"),
+            ("fan_in", "FAN_IN"),
+            ("velocity_anomaly", "VELOCITY_ANOMALY"),
+        ):
+            if pattern in patterns:
+                return alert_type
+        return "MULE_SPLIT"
+
+    @staticmethod
+    def _iso_timestamp(value: float) -> str:
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
     @staticmethod
     def _timestamp(value) -> float:

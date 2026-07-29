@@ -13,10 +13,15 @@ class VisionApiClient:
     def __init__(self, provider: str = "demo"):
         self.provider = provider
 
-    async def analyze_image(self, image_base64: str, analysis_type: str = "deepfake") -> dict:
+    async def analyze_image(
+        self,
+        image_base64: str,
+        analysis_type: str = "deepfake",
+        source_filename: str = "",
+    ) -> dict:
         raw = self._validate_image(image_base64)
         if self.provider in {"demo", "mock"}:
-            return self._demo_analyze(raw)
+            return self._demo_analyze(raw, source_filename)
         if self.provider in {"alibaba", "alibaba-model-studio"}:
             return await self._model_studio_analyze(image_base64)
         if self.provider == "alibaba-ekyc":
@@ -39,9 +44,15 @@ class VisionApiClient:
         return raw
 
     @staticmethod
-    def _demo_analyze(raw: bytes) -> dict:
+    def _demo_analyze(raw: bytes, source_filename: str = "") -> dict:
         marker = raw.lower()
-        suspicious = b"deepfake" in marker or b"synthetic" in marker
+        filename_marker = source_filename.lower()
+        suspicious = (
+            b"deepfake" in marker
+            or b"synthetic" in marker
+            or "deepfake" in filename_marker
+            or "synthetic" in filename_marker
+        )
         return {
             "provider": "demo",
             "deepfake_probability": 0.91 if suspicious else 0.08,

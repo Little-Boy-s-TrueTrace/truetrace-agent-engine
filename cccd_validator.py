@@ -1,7 +1,7 @@
 import re
 
 PROVINCES = {
-    "001": "Ha Noi", "002": "Ha Giang", "004": "Cao Bang", "006": "Bac Kan",
+    "001": "Hà Nội", "002": "Ha Giang", "004": "Cao Bang", "006": "Bac Kan",
     "008": "Tuyen Quang", "010": "Lao Cai", "011": "Dien Bien", "012": "Lai Chau",
     "014": "Son La", "015": "Yen Bai", "017": "Hoa Binh", "019": "Thai Nguyen",
     "020": "Lang Son", "022": "Quang Ninh", "024": "Bac Giang", "025": "Phu Tho",
