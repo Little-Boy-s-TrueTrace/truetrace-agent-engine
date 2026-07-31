@@ -6,7 +6,7 @@ from config import Config
 class IdentityRegistryClient:
     """Adapter for the assumed national identity registry API.
 
-    Demo mode validates the CCCD format only. Production deployments must configure
+    Demo mode validates the Citizen ID format only. Production deployments must configure
     IDENTITY_REGISTRY_ENDPOINT and IDENTITY_REGISTRY_API_KEY.
     """
 

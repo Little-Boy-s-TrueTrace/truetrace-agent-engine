@@ -19,7 +19,7 @@ class DeepfakeInspectorAgent:
     async def analyze_kyc(self, kyc_session: dict) -> dict:
         logger.info(f"Analyzing KYC session {kyc_session.get('session_id')}")
         
-        # 1. Validate CCCD
+        # 1. Validate Citizen ID
         session_id = kyc_session.get('session_id') or kyc_session.get('sessionId')
         cccd_number = kyc_session.get('cccd_number') or kyc_session.get('cccdNumber', '')
         customer_name = kyc_session.get('customer_name') or kyc_session.get('customerName', '')

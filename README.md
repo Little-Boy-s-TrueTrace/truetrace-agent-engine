@@ -2,7 +2,7 @@
 
 Asynchronous Python runtime orchestrating three compliance agents:
 
-- Deepfake Inspector handles KYC, CCCD, Alibaba vision/eKYC, and identity registry.
+- Deepfake Inspector handles KYC, Citizen Identity Card, Alibaba vision/eKYC, and identity registry.
 - Money-Trail Explorer analyzes the transaction graph using a sliding window, freezes high-risk accounts, and creates AML alerts.
 - AML Reporter uses Qwen to compose bilingual STR drafts for human review.
 
@@ -51,7 +51,7 @@ VISION_API_KEY=...
 
 The gateway must return standardized fields: `deepfake_probability`, `face_match_score`, `liveness_score`, `signals`, and `details`.
 
-National CCCD verification is a hypothetical integration and is only invoked when configured:
+National Citizen ID verification is a hypothetical integration and is only invoked when configured:
 
 ```dotenv
 IDENTITY_REGISTRY_ENDPOINT=https://registry-gateway.example/verify
