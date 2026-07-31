@@ -65,12 +65,12 @@ class MoneyTrailAgent:
                 "pattern": "velocity_anomaly",
                 "details": f"{velocity_window} rapid txs in last {Config.MONEY_TRAIL_WINDOW_SECONDS}s, {velocity_hour} in last hour."
             })
-            risk_score += 8.0 if velocity_window >= 3 else 3.0
+            risk_score += 3.0
             
         # 5. Repeated structuring: multiple transfers inside the sliding window
         structuring = self.graph.get_structuring_activity(
             from_acc,
-            Config.STRUCTURING_THRESHOLD_VND * 0.9,
+            Config.STRUCTURING_THRESHOLD_VND * 0.5,
             Config.STRUCTURING_THRESHOLD_VND,
             Config.MONEY_TRAIL_WINDOW_SECONDS,
             timestamp,

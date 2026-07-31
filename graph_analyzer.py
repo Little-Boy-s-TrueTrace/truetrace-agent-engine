@@ -85,7 +85,7 @@ class TransactionGraph:
         matches = [
             edge
             for edge in self.outgoing.get(account, [])
-            if cutoff <= edge[2] <= current and edge[1] <= upper_amount
+            if cutoff <= edge[2] <= current and lower_amount <= edge[1] <= upper_amount
         ]
         return {
             "count": len(matches),
