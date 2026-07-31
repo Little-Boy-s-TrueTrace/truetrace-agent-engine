@@ -223,6 +223,36 @@ async def test_money_trail_repeated_structuring_escalates_on_second_transfer():
 
 
 @pytest.mark.asyncio
+async def test_money_trail_freezes_on_rapid_continuous_transfers_with_different_amounts():
+    agent = MoneyTrailAgent()
+    agent._freeze_account = AsyncMock()
+    agent._create_alert = AsyncMock()
+    now = 1_800_000_000.0
+
+    # 1st transfer: 100k
+    t1 = await agent.process_transaction({
+        "id": "diff-1",
+        "sourceAccountNumber": "ACC-MULE-DIFF",
+        "targetAccountNumber": "ACC-REC-1",
+        "amount": 100_000,
+        "timestamp": now,
+    })
+    assert t1["needs_str"] is False
+
+    # 2nd transfer: 500k (within 10s)
+    t2 = await agent.process_transaction({
+        "id": "diff-2",
+        "sourceAccountNumber": "ACC-MULE-DIFF",
+        "targetAccountNumber": "ACC-REC-2",
+        "amount": 500_000,
+        "timestamp": now + 5,
+    })
+    assert t2["needs_str"] is True
+    assert t2["risk_score"] >= 7.0
+    agent._freeze_account.assert_awaited_once_with("ACC-MULE-DIFF")
+
+
+@pytest.mark.asyncio
 async def test_money_trail_alert_uses_full_suspicious_amount(monkeypatch):
     agent = MoneyTrailAgent()
     backend = AsyncMock(return_value={"id": 9, "alertId": "alert-9"})

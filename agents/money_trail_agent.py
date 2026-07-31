@@ -57,14 +57,17 @@ class MoneyTrailAgent:
                 risk_score += 6.0
                 break
                 
-        # 4. Velocity anomaly
-        velocity = self.graph.get_velocity(from_acc, 3600, timestamp)
-        if velocity > 20:
-            findings.append({"pattern": "velocity_anomaly", "details": f"{velocity} txs in last hour."})
-            risk_score += 3.0
+        # 4. Velocity anomaly (short window or 1-hour window)
+        velocity_window = self.graph.get_velocity(from_acc, Config.MONEY_TRAIL_WINDOW_SECONDS, timestamp)
+        velocity_hour = self.graph.get_velocity(from_acc, 3600, timestamp)
+        if velocity_hour > 20 or velocity_window >= 2:
+            findings.append({
+                "pattern": "velocity_anomaly",
+                "details": f"{velocity_window} rapid txs in last {Config.MONEY_TRAIL_WINDOW_SECONDS}s, {velocity_hour} in last hour."
+            })
+            risk_score += 8.0 if velocity_window >= 3 else 3.0
             
-        # 5. Repeated structuring: two near-threshold transfers inside the
-        # sliding window must cross the demo escalation threshold.
+        # 5. Repeated structuring: multiple transfers inside the sliding window
         structuring = self.graph.get_structuring_activity(
             from_acc,
             Config.STRUCTURING_THRESHOLD_VND * 0.9,
