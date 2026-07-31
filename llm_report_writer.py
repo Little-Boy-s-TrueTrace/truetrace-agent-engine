@@ -22,14 +22,33 @@ class LlmReportWriter:
         patterns = ", ".join(
             item.get("pattern", "unknown") for item in alert.get("findings", [])
         ) or "unidentified"
+        pattern_labels_vi = {
+            "fan_out": "phân tán tiền tới nhiều tài khoản (fan-out)",
+            "fan_in": "nhận tiền từ nhiều tài khoản (fan-in)",
+            "circular_flow": "dòng tiền vòng tròn",
+            "velocity_anomaly": "tần suất giao dịch bất thường",
+            "structuring": "chia nhỏ giao dịch để né ngưỡng (structuring)",
+            "rapid_mule_dispersion": (
+                "nhận và phân tán tiền nhanh qua tài khoản trung gian "
+                "(rapid mule dispersion)"
+            ),
+        }
+        patterns_vi = ", ".join(
+            pattern_labels_vi.get(
+                item.get("pattern", "unknown"),
+                item.get("pattern", "không xác định"),
+            )
+            for item in alert.get("findings", [])
+        ) or "chưa xác định"
         account = alert.get("account") or "unidentified"
         score = alert.get("risk_score", 0)
         return {
             "narrative_vi": (
-                f"TrueTrace system recorded account {account} with risk score {score}/10 "
-                f"and indicators: {patterns}. Transaction data, timestamps, and counterparty "
-                "relationships have been preserved in the evidence package. AML officer "
-                "review of the subject, transaction purpose, and STR submission decision is required."
+                f"Hệ thống TrueTrace ghi nhận tài khoản {account} có điểm rủi ro "
+                f"{score}/10 và dấu hiệu: {patterns_vi}. Dữ liệu giao dịch, thời điểm "
+                "phát sinh và quan hệ với các tài khoản đối ứng đã được lưu trong gói "
+                "bằng chứng. Cán bộ AML phải xác minh chủ thể, mục đích giao dịch và "
+                "phê duyệt quyết định nộp STR."
             ),
             "narrative_en": (
                 f"TrueTrace identified account {account} with risk score {score}/10 and "

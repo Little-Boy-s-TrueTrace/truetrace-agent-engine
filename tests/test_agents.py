@@ -7,6 +7,7 @@ import pytest
 from agents.aml_report_agent import AmlReportAgent
 from agents.deepfake_agent import DeepfakeInspectorAgent
 from agents.money_trail_agent import MoneyTrailAgent
+from llm_report_writer import LlmReportWriter
 
 
 def test_money_trail_accepts_jackson_local_datetime_array():
@@ -17,6 +18,23 @@ def test_money_trail_accepts_jackson_local_datetime_array():
     assert datetime.fromtimestamp(timestamp) == datetime(
         2026, 7, 26, 14, 59, 14, 30256
     )
+
+
+def test_demo_str_writer_returns_distinct_vietnamese_and_english_narratives():
+    report = LlmReportWriter._demo_generate(
+        {
+            "alert": {
+                "account": "ACC-424242",
+                "risk_score": 8,
+                "findings": [{"pattern": "structuring"}],
+            }
+        }
+    )
+
+    assert "Hệ thống TrueTrace ghi nhận tài khoản ACC-424242" in report["narrative_vi"]
+    assert "chia nhỏ giao dịch để né ngưỡng" in report["narrative_vi"]
+    assert "TrueTrace identified account ACC-424242" in report["narrative_en"]
+    assert report["narrative_vi"] != report["narrative_en"]
 
 
 @pytest.mark.asyncio
